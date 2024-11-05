@@ -1,61 +1,38 @@
-#%%
-!curl https://raw.githubusercontent.com/karpathy/ng-video-lecture/refs/heads/master/input.txt -o input_data
-# %%
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+
+# Hyperparameters 
+batch_size = 4 # number of independent sequences processed in parallel
+block_size = 8 # maximum context length for prediction
+max_iterations = 3000
+learning_rate = 1e-2
+eval_interval = 300
+eval_iters = 200
+torch.manual_seed(1337)
+
+
 with open('input_data', 'r', encoding='utf-8') as f:
     text = f.read()
 
-print("length of dataset in chars:", len(text))
-print("first thousand chars: \n", text[:1000])
-# %%
 
 # get all unique characters
 vocab = sorted(list(set(text)))
 vocab_size = len(vocab)
-print('vocab size: ',vocab_size)
-print('vocab: ',''.join(vocab))
-# %%
 
-# tokenize the input text by characters
-
+# create tokenizer fpr the input text by characters
 str2int = { ch:i for i,ch in enumerate(vocab)}
 int2str = { i:ch for i,ch in enumerate(vocab)}
-
 encoder = lambda s: [str2int[c] for c in s] # given string, return list of ints 
 decorder = lambda l: ''.join([int2str[i] for i in l]) # given list, return string
 
-print(encoder("my name is rawamily"))
-print(decorder(encoder("my name is rawamily")))
-# %%
-import torch
-
-
 # encode input dataset and place it in tensor 
 data = torch.tensor(encoder(text), dtype=torch.long)
-print(data.shape, data.dtype)
-print(data[:1000])
-# %%
+
 # train validation split 
 n = int(.9*len(data))
 train_data = data[:n]
 val_data = data[n:]
-
-#%%
-block_size = 8
-train_data[:block_size+1]
-
-# illustration of prediction based on full context of the block:
-x = train_data[:block_size]
-y = train_data[1:block_size+1]
-for t in range(block_size):
-    context = x[:t+1]
-    target = y[t]
-    print(f"when input is {context}, the target is {target}")
-# %%
-# batching for parallel processing of blocks 
-
-torch.manual_seed(1337)
-batch_size = 4 # number of independent sequences processed in parallel
-block_size = 8 # maximum context length for prediction
 
 def get_batch(split):
     data = train_data if split == 'train' else val_data
@@ -64,23 +41,20 @@ def get_batch(split):
     y = torch.stack([data[i+1:i+block_size+1] for i in ix]) # offset by 1 for next char prediction
     return x, y
 
+@torch.no_grad()
+def estimate_loss():
+    out = {}
+    model.eval
+    for split in ['train', 'val']:
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            X, Y = get_batch(split)
+            logits, loss = model(X,Y)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+    model.train()
+    return out 
 xb, yb = get_batch('train')
-print('inputs: \n', xb.shape, "\n", xb)
-print('targets: \n', yb.shape, "\n", yb)
-
-#%%
-# inputs vs targets illustration
-for b in range(batch_size):
-    for t in range(block_size):
-        context = xb[b, :t+1]
-        print(context)
-        target = yb[b, t]
-        print(f"when the input is {context.tolist()}, the target: {target}")
-# %%
-import torch
-import torch.nn as nn
-from torch.nn import functional as F
-torch.manual_seed(1337)
 
 class BigramLanguageModel(nn.Module):
 
@@ -115,30 +89,28 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, next_idx), dim=1) # (B, T+1)
         return idx
     
-m = BigramLanguageModel(vocab_size=vocab_size)
-logits, loss = m(xb, yb)
-print(logits.shape)
-print(loss)
+model = BigramLanguageModel(vocab_size=vocab_size)
 
-print(decorder(m.generate(idx = torch.zeros((1,1), dtype=torch.long), max_new_tokens=100)[0].tolist()))
-
-# %%
 # get pytorch optimizer
-optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
-#%%
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
 # training loop
-batch_size = 32
-for steps in range(100000):
+for iter in range(max_iterations):
+
+    # evaluate loss on training and validation data every few iterations 
+    if iter % eval_interval == 0:
+        losses = estimate_loss()
+        print(f"Training loss at step {iter}: {losses['train']:.4f} \nValidation loss at step {iter}: {losses['val']:.4f}")
+
     # sample a batch
     xb, yb = get_batch('train')
+
     # evaluate loss
-    logits, loss = m(xb, yb)
+    logits, loss = model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
 
-    print(loss.item())
-# %%
-print(decorder(m.generate(idx = torch.zeros((1,1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
-
-# %%
+# generate a sample output
+context = torch.zeros((1,1), dtype=torch.long)
+print(decorder(model.generate(context, max_new_tokens=500)[0].tolist()))
