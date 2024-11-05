@@ -75,5 +75,70 @@ for b in range(batch_size):
         context = xb[b, :t+1]
         print(context)
         target = yb[b, t]
-        print(f"when the batched input is {context.tolist()}, the batched target: {target}")
+        print(f"when the input is {context.tolist()}, the target: {target}")
+# %%
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+torch.manual_seed(1337)
+
+class BigramLanguageModel(nn.Module):
+
+    def __init__(self, vocab_size):
+        super().__init__()
+        # each token reads off the logits for the next token from a lookup table
+        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+
+    def forward(self, idx, targets=None):
+        # idx and targets are both (B,T) tensor of integers
+        logits = self.token_embedding_table(idx) # (B,T,C)
+
+        if targets is None: # in the case where we are running inference
+            loss = None
+        else:
+            B, T, C = logits.shape
+            logits = logits.view(B*T, C) # convert array to 2D
+            targets = targets.view(B*T)
+            loss = F.cross_entropy(logits, target=targets)
+
+        return logits, loss
+    
+
+    def generate(self, idx, max_new_tokens):
+        # idx is (B,T) array of indices for the current context
+        for _ in range(max_new_tokens):
+            # get predictions
+            logits, loss = self(idx)
+            logits = logits[:, -1, :] # get last time step, (B,C)
+            probs = F.softmax(logits, dim=1) # get probability 
+            next_idx = torch.multinomial(probs, num_samples=1) # (B,1)
+            idx = torch.cat((idx, next_idx), dim=1) # (B, T+1)
+        return idx
+    
+m = BigramLanguageModel(vocab_size=vocab_size)
+logits, loss = m(xb, yb)
+print(logits.shape)
+print(loss)
+
+print(decorder(m.generate(idx = torch.zeros((1,1), dtype=torch.long), max_new_tokens=100)[0].tolist()))
+
+# %%
+# get pytorch optimizer
+optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
+#%%
+# training loop
+batch_size = 32
+for steps in range(100000):
+    # sample a batch
+    xb, yb = get_batch('train')
+    # evaluate loss
+    logits, loss = m(xb, yb)
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+    print(loss.item())
+# %%
+print(decorder(m.generate(idx = torch.zeros((1,1), dtype=torch.long), max_new_tokens=500)[0].tolist()))
+
 # %%
