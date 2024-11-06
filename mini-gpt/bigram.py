@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from attention_head import Head, MultiHeadAttention
-
+from feed_forward import FeedForward
+from transformer import TransformerBlock
 # Hyperparameters 
 batch_size = 4 # number of independent sequences processed in parallel
 block_size = 8 # maximum context length for prediction
@@ -66,7 +67,13 @@ class BigramLanguageModel(nn.Module):
         # each token reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # this will allow us to encode the meaning of the tokens 
         self.position_embedding_table = nn.Embedding(block_size, n_embed) # this will allow us to encode the position of the tokens
-        self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embed//4)
+        # self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embed//4)
+        # self.ffwd = FeedForward(n_embed=n_embed)
+        self.blocks = nn.Sequential(
+            TransformerBlock(n_embed, n_head=4), 
+            TransformerBlock(n_embed, n_head=4), 
+            TransformerBlock(n_embed, n_head=4), 
+        )
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -76,14 +83,16 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx) # (B,T,C)
         position_embedding = self.position_embedding_table(torch.arange(T)) # (T, C)
         x = token_embeddings + position_embedding # (B,T,C)
-        x = self.sa_heads(x) # apply one head of self attention
+        # x = self.sa_heads(x) # apply one head of self attention
+        # x = self.ffwd(x) # (B,T,C) - this layer allows the model to 'think' on the context before producing the logits
+        x = self.blocks(x)
         logits = self.lm_head(x) # (B,T,vocab_size)
 
         if targets is None: # in the case where we are running inference
             loss = None
         else:
             B, T, C = logits.shape
-            logits = logits.view(B*T, C) # convert array to 2D
+            logits = logits.view(B*T, C) # convert array to 2Dtr
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, target=targets)
 
