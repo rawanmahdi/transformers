@@ -73,6 +73,7 @@ class BigramLanguageModel(nn.Module):
             TransformerBlock(n_embed, n_head=4), 
             TransformerBlock(n_embed, n_head=4), 
             TransformerBlock(n_embed, n_head=4), 
+            nn.LayerNorm(n_embed)
         )
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
