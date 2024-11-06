@@ -1,14 +1,17 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from attention_head import Head
 
 # Hyperparameters 
 batch_size = 4 # number of independent sequences processed in parallel
 block_size = 8 # maximum context length for prediction
-max_iterations = 3000
-learning_rate = 1e-2
+max_iterations = 5000
+learning_rate = 1e-3
 eval_interval = 300
 eval_iters = 200
+n_embed = 32 # number of embedding dimensions 
+
 torch.manual_seed(1337)
 
 
@@ -41,10 +44,10 @@ def get_batch(split):
     y = torch.stack([data[i+1:i+block_size+1] for i in ix]) # offset by 1 for next char prediction
     return x, y
 
-@torch.no_grad()
+@torch.no_grad() #no back propagation! more efficient memory mode
 def estimate_loss():
     out = {}
-    model.eval
+    model.eval # switch to eval mode
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
@@ -52,20 +55,29 @@ def estimate_loss():
             logits, loss = model(X,Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
-    model.train()
+    model.train() # switch back to train mode
     return out 
 xb, yb = get_batch('train')
 
 class BigramLanguageModel(nn.Module):
 
-    def __init__(self, vocab_size):
+    def __init__(self):
         super().__init__()
         # each token reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # this will allow us to encode the meaning of the tokens 
+        self.position_embedding_table = nn.Embedding(block_size, n_embed) # this will allow us to encode the position of the tokens
+        self.sa_head = Head(head_size=n_embed)
+        self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
+        B, T = idx.shape
+
         # idx and targets are both (B,T) tensor of integers
-        logits = self.token_embedding_table(idx) # (B,T,C)
+        token_embeddings = self.token_embedding_table(idx) # (B,T,C)
+        position_embedding = self.position_embedding_table(torch.arange(T)) # (T, C)
+        x = token_embeddings + position_embedding # (B,T,C)
+        x = self.sa_head(x) # apply one head of self attention
+        logits = self.lm_head(x) # (B,T,vocab_size)
 
         if targets is None: # in the case where we are running inference
             loss = None
@@ -81,15 +93,17 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is (B,T) array of indices for the current context
         for _ in range(max_new_tokens):
+            # crop idx to the last block_size tokens 
+            idx_cond = idx[:, -block_size:]
             # get predictions
-            logits, loss = self(idx)
+            logits, loss = self(idx_cond)
             logits = logits[:, -1, :] # get last time step, (B,C)
             probs = F.softmax(logits, dim=1) # get probability 
             next_idx = torch.multinomial(probs, num_samples=1) # (B,1)
             idx = torch.cat((idx, next_idx), dim=1) # (B, T+1)
         return idx
     
-model = BigramLanguageModel(vocab_size=vocab_size)
+model = BigramLanguageModel()
 
 # get pytorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
