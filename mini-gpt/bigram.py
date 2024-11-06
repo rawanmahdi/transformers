@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from attention_head import Head
+from attention_head import Head, MultiHeadAttention
 
 # Hyperparameters 
 batch_size = 4 # number of independent sequences processed in parallel
 block_size = 8 # maximum context length for prediction
-max_iterations = 5000
+max_iterations = 7000
 learning_rate = 1e-3
 eval_interval = 300
 eval_iters = 200
@@ -66,7 +66,7 @@ class BigramLanguageModel(nn.Module):
         # each token reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed) # this will allow us to encode the meaning of the tokens 
         self.position_embedding_table = nn.Embedding(block_size, n_embed) # this will allow us to encode the position of the tokens
-        self.sa_head = Head(head_size=n_embed)
+        self.sa_heads = MultiHeadAttention(num_heads=4, head_size=n_embed//4)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -76,7 +76,7 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx) # (B,T,C)
         position_embedding = self.position_embedding_table(torch.arange(T)) # (T, C)
         x = token_embeddings + position_embedding # (B,T,C)
-        x = self.sa_head(x) # apply one head of self attention
+        x = self.sa_heads(x) # apply one head of self attention
         logits = self.lm_head(x) # (B,T,vocab_size)
 
         if targets is None: # in the case where we are running inference
