@@ -2,26 +2,16 @@ import torch
 import torch.nn as nn 
 from torch.nn import functional as F
 
-# Hyperparameters 
-batch_size = 4 # number of independent sequences processed in parallel
-block_size = 8 # maximum context length for prediction
-max_iterations = 3000
-learning_rate = 1e-2
-eval_interval = 300
-eval_iters = 200
-n_embed = 32 # number of embedding dimensions 
-dropout = 0.2
-
 class Head(nn.Module):
 
     """ single head of self-attention """
 
-    def __init__(self, head_size):
+    def __init__(self, n_embed, head_size, block_size, dropout):
         super().__init__()
         self.key = nn.Linear(n_embed, head_size, bias=False)
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
-        self.register_buffer('tril', tensor=torch.tril(torch.ones(block_size, block_size)))
+        self.register_buffer('tril', tensor=torch.tril(torch.ones(block_size, block_size))) # adding as a constant parameter
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -50,10 +40,10 @@ class MultiHeadAttention(nn.Module):
 
     """ multiple heads of self attention in parallel """
 
-    def __init__(self, num_heads, head_size, dropout):
+    def __init__(self, n_heads, block_size, head_size, dropout, n_embed):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size=head_size) for _ in range(num_heads)])
-        self.projection = nn.Linear(num_heads * head_size, n_embed)
+        self.heads = nn.ModuleList([Head(n_embed, head_size, block_size, dropout) for _ in range(n_heads)])
+        self.projection = nn.Linear(n_heads * head_size, n_embed)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
